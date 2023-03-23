@@ -5,11 +5,14 @@ namespace Expressions.Utilities;
 /// <summary>
 /// Simplifies an expression tree so it can be more easily compiled.
 /// </summary>
-internal class ExpressionSimplifier : LinqExpressions.ExpressionVisitor
+public class ExpressionSimplifier : LinqExpressions.ExpressionVisitor
 {
-    public static readonly ExpressionSimplifier Instance = new ExpressionSimplifier();
+    /// <summary>
+    /// An instance of the <see cref="ExpressionSimplifier"/> class.
+    /// </summary>
+    public static readonly ExpressionSimplifier Instance = new();
 
-    private MethodInfo GetOverloadedOperator(string name, Type[] operandTypes, Type returnType)
+    private static MethodInfo GetOverloadedOperator(string name, Type[] operandTypes, Type returnType)
     {
         foreach (var type in operandTypes.Concat(returnType != null ? Enumerable.Repeat(returnType, 1) : Enumerable.Empty<Type>()))
         {
@@ -27,25 +30,22 @@ internal class ExpressionSimplifier : LinqExpressions.ExpressionVisitor
         return null;
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitBinary(LinqExpressions.BinaryExpression node)
     {
         switch (node.NodeType)
         {
             case LinqExpressions.ExpressionType.Assign:
-                if (node.Left is LinqExpressions.MemberExpression && ((LinqExpressions.MemberExpression)node.Left).Member is PropertyInfo)
+                if (node.Left is LinqExpressions.MemberExpression memberExpression && memberExpression.Member is PropertyInfo property)
                 {
                     // simplify property assignment to setter invocation
-                    var member = (LinqExpressions.MemberExpression)node.Left;
-                    var property = (PropertyInfo)member.Member;
-                    return Visit(member.Expression != null ? LinqExpressions.Expression.Call(member.Expression, property.GetSetMethod(nonPublic: true), node.Right) :
-                                                             LinqExpressions.Expression.Call(property.GetSetMethod(nonPublic: true), node.Right));
+                    return Visit(memberExpression.Expression != null ? LinqExpressions.Expression.Call(memberExpression.Expression, property.GetSetMethod(nonPublic: true), node.Right) :
+                                                                       LinqExpressions.Expression.Call(property.GetSetMethod(nonPublic: true), node.Right));
                 }
-                else if (node.Left is LinqExpressions.IndexExpression && ((LinqExpressions.IndexExpression)node.Left).Indexer != null)
+                else if (node.Left is LinqExpressions.IndexExpression indexExpression && indexExpression.Indexer != null)
                 {
                     // simplify indexer assignment to setter invocation
-                    var index = (LinqExpressions.IndexExpression)node.Left;
-                    var property = index.Indexer;
-                    return Visit(LinqExpressions.Expression.Call(index.Object, property.GetSetMethod(nonPublic: true), index.Arguments.Concat(new[] { node.Right })));
+                    return Visit(LinqExpressions.Expression.Call(indexExpression.Object, indexExpression.Indexer.GetSetMethod(nonPublic: true), indexExpression.Arguments.Concat(new[] { node.Right })));
                 }
                 break;
 
@@ -72,9 +72,9 @@ internal class ExpressionSimplifier : LinqExpressions.ExpressionVisitor
                         LinqExpressions.Expression expression;
 
                         // if we're comparing to null, we can simplify to a check on HasValue
-                        if (node.Left is LinqExpressions.ConstantExpression && ((LinqExpressions.ConstantExpression)node.Left).Value == null)
+                        if (node.Left is LinqExpressions.ConstantExpression leftConstantExpression && leftConstantExpression.Value == null)
                             expression = LinqExpressions.Expression.Property(node.Right, "HasValue");
-                        else if (node.Right is LinqExpressions.ConstantExpression && ((LinqExpressions.ConstantExpression)node.Right).Value == null)
+                        else if (node.Right is LinqExpressions.ConstantExpression rightConstantExpression && rightConstantExpression.Value == null)
                             expression = LinqExpressions.Expression.Property(node.Left, "HasValue");
                         else
                         {
@@ -104,6 +104,7 @@ internal class ExpressionSimplifier : LinqExpressions.ExpressionVisitor
         return base.VisitBinary(node);
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitIndex(LinqExpressions.IndexExpression node)
     {
         if (node.Indexer != null)
@@ -112,12 +113,12 @@ internal class ExpressionSimplifier : LinqExpressions.ExpressionVisitor
         return base.VisitIndex(node);
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitMember(LinqExpressions.MemberExpression node)
     {
         // simplify property access to getter invocation
-        if (node.Member is PropertyInfo)
+        if (node.Member is PropertyInfo property)
         {
-            var property = (PropertyInfo)node.Member;
             return Visit(node.Expression != null ? LinqExpressions.Expression.Call(node.Expression, property.GetGetMethod(nonPublic: true)) :
                                                    LinqExpressions.Expression.Call(property.GetGetMethod(nonPublic: true)));
         }
@@ -125,6 +126,7 @@ internal class ExpressionSimplifier : LinqExpressions.ExpressionVisitor
         return base.VisitMember(node);
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitMemberInit(LinqExpressions.MemberInitExpression node)
     {
         // simplify member init expressions to their component operations
@@ -140,6 +142,7 @@ internal class ExpressionSimplifier : LinqExpressions.ExpressionVisitor
                           .Concat(Enumerable.Repeat(temporaryVariable, 1))));
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitUnary(LinqExpressions.UnaryExpression node)
     {
         switch (node.NodeType)
