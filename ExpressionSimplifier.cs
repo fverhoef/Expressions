@@ -1,5 +1,3 @@
-using LinqExpressions = System.Linq.Expressions;
-
 namespace Expressions.Utilities;
 
 /// <summary>
