@@ -6,9 +6,14 @@ namespace Expressions.Utilities;
 /// Compiles an expression tree to intermediate language, while properly dealing with types,
 /// methods, properties and what not that haven't been actually instantiated yet.
 /// </summary>
-internal class ExpressionCompiler : ExpressionVisitor
+public class ExpressionCompiler : ExpressionVisitor
 {
-    public ExpressionCompiler(LinqExpressions.ParameterExpression[] parameters, ILGenerator ilGenerator)
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ExpressionCompiler"/> class.
+    /// </summary>
+    /// <param name="ilGenerator">The IL generator to compile to.</param>
+    /// <param name="parameters">The parameters, if any.</param>
+    public ExpressionCompiler(ILGenerator ilGenerator, params LinqExpressions.ParameterExpression[] parameters)
     {
         // get all parameters and their offset
         _parameters = new Dictionary<LinqExpressions.ParameterExpression, int>();
@@ -20,7 +25,7 @@ internal class ExpressionCompiler : ExpressionVisitor
 
     private readonly ILGenerator _ilGenerator;
     private readonly Dictionary<LinqExpressions.ParameterExpression, int> _parameters;
-    private readonly Dictionary<LinqExpressions.ParameterExpression, LocalBuilder> _locals = new Dictionary<LinqExpressions.ParameterExpression, LocalBuilder>();
+    private readonly Dictionary<LinqExpressions.ParameterExpression, LocalBuilder> _locals = new();
     private bool _byReference = false;
 
     private void Visit(LinqExpressions.Expression node, bool wantVoid)
@@ -32,6 +37,7 @@ internal class ExpressionCompiler : ExpressionVisitor
             _ilGenerator.Emit(OpCodes.Pop);
     }
 
+    /// <inheritdoc/>
     public override LinqExpressions.Expression Visit(LinqExpressions.Expression node)
     {
         var oldByReference = _byReference;
@@ -42,6 +48,7 @@ internal class ExpressionCompiler : ExpressionVisitor
         return result;
     }
 
+    /// <inheritdoc/>
     public LinqExpressions.Expression VisitByReference(LinqExpressions.Expression node)
     {
         var oldByReference = _byReference;
@@ -61,11 +68,13 @@ internal class ExpressionCompiler : ExpressionVisitor
         return result;
     }
 
+    /// <inheritdoc/>
     protected override void VisitUnhandled(object node)
     {
         throw new NotSupportedException(string.Format("{0} is not supported", node.GetType().Name));
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitBinary(LinqExpressions.BinaryExpression node)
     {
         // assignment goes in the other direction, so it's handled specially here
@@ -78,24 +87,18 @@ internal class ExpressionCompiler : ExpressionVisitor
             _ilGenerator.Emit(OpCodes.Dup);
 
             // determine how to assign the result
-            if (node.Left is LinqExpressions.ParameterExpression)
+            if (node.Left is LinqExpressions.ParameterExpression parameterExpression)
             {
-                var parameterExpression = (LinqExpressions.ParameterExpression)node.Left;
-
                 // store into parameter or local
-                int index;
-                LocalBuilder local;
-                if (_parameters.TryGetValue(parameterExpression, out index))
+                if (_parameters.TryGetValue(parameterExpression, out int index))
                     _ilGenerator.Emit(OpCodes.Starg, (short)index);
-                else if (_locals.TryGetValue(parameterExpression, out local))
+                else if (_locals.TryGetValue(parameterExpression, out LocalBuilder local))
                     _ilGenerator.Emit(OpCodes.Stloc, local);
                 else
                     throw new NotSupportedException();
             }
-            else if (node.Left is LinqExpressions.MemberExpression)
+            else if (node.Left is LinqExpressions.MemberExpression memberExpression)
             {
-                var memberExpression = (LinqExpressions.MemberExpression)node.Left;
-
                 // do we have an instance?
                 if (memberExpression.Expression != null)
                 {
@@ -170,7 +173,8 @@ internal class ExpressionCompiler : ExpressionVisitor
         return node;
     }
 
-    protected override Expression VisitBlock(LinqExpressions.BlockExpression node)
+    /// <inheritdoc/>
+    protected override LinqExpressions.Expression VisitBlock(LinqExpressions.BlockExpression node)
     {
         // add all local variables
         foreach (var local in node.Variables)
@@ -191,6 +195,7 @@ internal class ExpressionCompiler : ExpressionVisitor
         return node;
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitConstant(LinqExpressions.ConstantExpression node)
     {
         if (node.Type == typeof(bool))
@@ -219,6 +224,7 @@ internal class ExpressionCompiler : ExpressionVisitor
         return node;
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitConditional(LinqExpressions.ConditionalExpression node)
     {
         // emit the test result
@@ -245,6 +251,7 @@ internal class ExpressionCompiler : ExpressionVisitor
         return node;
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitDefault(LinqExpressions.DefaultExpression node)
     {
         if (node.Type != typeof(void))
@@ -253,6 +260,7 @@ internal class ExpressionCompiler : ExpressionVisitor
         return node;
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitMember(LinqExpressions.MemberExpression node)
     {
         // do we have an instance to get the property from?
@@ -276,6 +284,7 @@ internal class ExpressionCompiler : ExpressionVisitor
         return node;
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitMethodCall(LinqExpressions.MethodCallExpression node)
     {
         // emit the object and arguments
@@ -285,12 +294,12 @@ internal class ExpressionCompiler : ExpressionVisitor
             Visit(argument);
 
         // call the method
-        var method = node.Method;
-        _ilGenerator.Emit(node.Method.IsVirtual || node.Method.DeclaringType.IsInterface ? OpCodes.Callvirt : OpCodes.Call, method);
+        _ilGenerator.Emit(node.Method.IsVirtual || node.Method.DeclaringType.IsInterface ? OpCodes.Callvirt : OpCodes.Call, node.Method);
 
         return node;
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitNew(LinqExpressions.NewExpression node)
     {
         // emit all arguments
@@ -303,14 +312,13 @@ internal class ExpressionCompiler : ExpressionVisitor
         return node;
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitParameter(LinqExpressions.ParameterExpression node)
     {
         // emit code to get the parameter or local
-        int index;
-        LocalBuilder local;
-        if (_parameters.TryGetValue(node, out index))
+        if (_parameters.TryGetValue(node, out int index))
             _ilGenerator.Emit(_byReference ? OpCodes.Ldarga : OpCodes.Ldarg, (short)index);
-        else if (_locals.TryGetValue(node, out local))
+        else if (_locals.TryGetValue(node, out LocalBuilder local))
             _ilGenerator.Emit(_byReference ? OpCodes.Ldloca : OpCodes.Ldloc, local);
         else
             throw new NotSupportedException();
@@ -321,6 +329,7 @@ internal class ExpressionCompiler : ExpressionVisitor
         return node;
     }
 
+    /// <inheritdoc/>
     protected override LinqExpressions.Expression VisitUnary(LinqExpressions.UnaryExpression node)
     {
         // emit the operand
@@ -356,7 +365,11 @@ internal class ExpressionCompiler : ExpressionVisitor
         return node;
     }
 
-    public void Compile(Expression expression)
+    /// <summary>
+    /// Compile the given <see cref="LinqExpressions.Expression"/>.
+    /// </summary>
+    /// <param name="expression">The expression to compile.</param>
+    public void Compile(LinqExpressions.Expression expression)
     {
         var simplifiedExpression = ExpressionSimplifier.Instance.Visit(expression);
         Visit(simplifiedExpression);
