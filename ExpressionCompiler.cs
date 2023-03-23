@@ -1,6 +1,6 @@
 using LinqExpressions = System.Linq.Expressions;
 
-namespace Gbli.Expressions.Utilities;
+namespace Expressions.Utilities;
 
 /// <summary>
 /// Compiles an expression tree to intermediate language, while properly dealing with types,
